@@ -1,0 +1,13 @@
+[Unit]
+Description=tgmirror
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tgmirror
+ExecStart=/opt/tgmirror/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

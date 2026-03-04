@@ -1,0 +1,21 @@
+[telegram]
+api_id = 12345
+api_hash = "your_api_hash_here"
+phone = "+1234567890"
+
+[settings]
+backfill_delay_seconds = 0.5
+
+[[sources]]
+id = -1001234567890
+name = "My Source Group"
+backfill_from = "2025-01-01"
+
+[[sources]]
+id = -1009999999999
+name = "Another Group"
+backfill_from = 0
+
+[destination]
+id = -1008888888888
+name = "My Channel"
