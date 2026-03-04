@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 
+from pyrogram import idle
+
 try:
     import tomllib
 except ImportError:
@@ -49,7 +51,7 @@ async def run():
 
         register_live_handlers(client, [s["id"] for s in sources], dest_id, state)
         logger.info("Live monitoring started. Press Ctrl+C to stop.")
-        await client.run_until_disconnected()
+        await idle()
 
 
 if __name__ == "__main__":

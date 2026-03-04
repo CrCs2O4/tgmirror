@@ -115,16 +115,6 @@ def collect_telegram() -> dict:
     return {"api_id": api_id, "api_hash": api_hash, "phone": phone}
 
 
-def collect_settings() -> dict:
-    section("Settings")
-    delay = ask("Backfill delay between messages in seconds", default="0.5")
-    try:
-        delay = float(delay)
-    except ValueError:
-        delay = 0.5
-    return {"backfill_delay_seconds": delay}
-
-
 def collect_backfill_from() -> str | int:
     choice = ask_choice(
         "Backfill — where to start forwarding from:",
@@ -154,9 +144,17 @@ def collect_backfill_from() -> str | int:
         return 0
 
 
+def tip_chat_id() -> None:
+    print(
+        "  Tip: forward any message from the group/channel to @userinfobot on Telegram"
+    )
+    print("       — it will reply with the chat ID.")
+
+
 def collect_sources() -> list[dict]:
     section("Source groups / channels")
     print("Add the groups or channels you want to forward FROM.")
+    tip_chat_id()
     sources = []
     while True:
         print(f"\n  Source #{len(sources) + 1}")
@@ -172,6 +170,7 @@ def collect_sources() -> list[dict]:
 def collect_destination() -> dict:
     section("Destination channel / group")
     print("The channel or group you want to forward TO.")
+    tip_chat_id()
     chat_id = int(ask_validated("Chat ID (negative integer)", validate_chat_id))
     name = ask("Name (label for logs)")
     return {"id": chat_id, "name": name}
@@ -181,7 +180,7 @@ def collect_destination() -> dict:
 
 
 def write_toml(
-    path: str, telegram: dict, settings: dict, sources: list[dict], destination: dict
+    path: str, telegram: dict, sources: list[dict], destination: dict
 ) -> None:
     lines = [
         "[telegram]",
@@ -190,7 +189,7 @@ def write_toml(
         f'phone = "{telegram["phone"]}"',
         "",
         "[settings]",
-        f"backfill_delay_seconds = {settings['backfill_delay_seconds']}",
+        "backfill_delay_seconds = 0.5",
         "",
     ]
     for src in sources:
@@ -232,11 +231,10 @@ def main() -> None:
             sys.exit(0)
 
     telegram = collect_telegram()
-    settings = collect_settings()
     sources = collect_sources()
     destination = collect_destination()
 
-    write_toml(config_path, telegram, settings, sources, destination)
+    write_toml(config_path, telegram, sources, destination)
     print(f"\n✓ Written to {config_path}")
 
     # Sanity-check: re-parse what we just wrote
