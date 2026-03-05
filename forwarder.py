@@ -153,7 +153,8 @@ async def _dispatch(
     else:
         await _safe_forward(client, dest_id, message.chat.id, message.id)
 
-    state.set(message.chat.id, message.id)
+    if message.id > state.get(message.chat.id):
+        state.set(message.chat.id, message.id)
 
 
 async def _send_with_floodwait(send_fn, *args, **kwargs):
