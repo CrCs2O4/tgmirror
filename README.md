@@ -1,6 +1,10 @@
 # tgmirror
 
-Mirrors messages from one or more Telegram groups or channels to a destination channel. It runs a backfill phase on startup to catch up on any missed messages, then switches to live forwarding as new messages arrive. Useful for aggregating content from multiple sources into a single channel.
+📡 Mirror Telegram groups and channels to a destination in real time.
+
+Runs a backfill phase on startup to catch up on any missed messages, then switches to live forwarding as new messages arrive. Supports native forwarding or copy mode (download + re-upload) per source, useful for channels that restrict forwarding.
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Requirements
 
@@ -53,6 +57,7 @@ On first run you will be prompted for your phone number and the OTP sent by Tele
 make setup         Install uv (if missing) and sync all dependencies
 make install       Sync dependencies into .venv via uv (requires uv)
 make run           Run the forwarder (CONFIG=path/to/config.toml)
+make debug         Run with LOG_LEVEL=DEBUG (tgmirror logs only)
 make test          Run tests
 make lint          Run ruff linter
 make fmt           Format code with ruff
@@ -116,6 +121,8 @@ name = "My Group"       # Human-readable label (used in logs only)
 backfill_from = "2025-01-01"  # ISO date: backfill messages from this date onward
                                # Use 0 to skip backfill, or a message ID integer
                                # to start from that message
+mode = "forward"        # "forward" (default) — native Telegram forward
+                        # "copy" — download and re-upload (bypasses forward restrictions)
 
 [destination]
 id = -1008888888888     # Telegram chat ID of the destination channel
@@ -163,6 +170,8 @@ sudo journalctl -u tgmirror -f
 
 ## How It Works
 
-On startup the forwarder runs a **backfill phase**: for each source it iterates through chat history from the configured `backfill_from` point, forwarding any messages not yet recorded in `state.json`. Progress is persisted after each message so restarts are safe.
+On startup the forwarder runs a **backfill phase**: for each source it collects all messages after the configured `backfill_from` point (newest→oldest), then dispatches them oldest-first so the destination channel receives them in chronological order. Progress is saved after each message so restarts resume cleanly without re-sending anything.
 
 Once backfill is complete it enters the **live phase**: a Pyrogram message handler fires for every new message in any source chat and forwards it to the destination immediately.
+
+**Forward mode** (`mode = "forward"`, default) uses Telegram's native forward API. **Copy mode** (`mode = "copy"`) downloads each message to a temporary file and re-uploads it, which works around sources that have disabled forwarding. Photos and documents are supported; other media types produce a placeholder link pointing to the original message.
