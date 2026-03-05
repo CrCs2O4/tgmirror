@@ -85,9 +85,7 @@ async def _copy_message(client: Client, message, dest_id: int):
             return
 
         tmp_dir = tempfile.mkdtemp()
-        tmp_path = await client.download_media(
-            message, file_name=os.path.join(tmp_dir, "media")
-        )
+        tmp_path = await client.download_media(message, file_name=tmp_dir + "/")
 
         if media_type == MessageMediaType.PHOTO:
             await _send_with_floodwait(

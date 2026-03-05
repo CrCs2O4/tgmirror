@@ -24,7 +24,9 @@ def make_message(
 def make_client():
     client = MagicMock()
     client.forward_messages = AsyncMock()
-    client.download_media = AsyncMock(return_value="/fake/tmpdir/media")
+    client.download_media = AsyncMock(
+        return_value="/fake/tmpdir/photo_2025-01-01_001.jpg"
+    )
     client.send_message = AsyncMock()
     client.send_photo = AsyncMock()
     client.send_video = AsyncMock()
@@ -159,9 +161,9 @@ async def test_copy_message_photo():
     ):
         await _copy_message(client, message, -1008888888888)
 
-    client.download_media.assert_called_once()
+    client.download_media.assert_called_once_with(message, file_name="/fake/tmpdir/")
     client.send_photo.assert_called_once_with(
-        -1008888888888, "/fake/tmpdir/media", caption="a photo"
+        -1008888888888, "/fake/tmpdir/photo_2025-01-01_001.jpg", caption="a photo"
     )
 
 
@@ -179,7 +181,7 @@ async def test_copy_message_document():
         await _copy_message(client, message, -1008888888888)
 
     client.send_document.assert_called_once_with(
-        -1008888888888, "/fake/tmpdir/media", caption="a pdf"
+        -1008888888888, "/fake/tmpdir/photo_2025-01-01_001.jpg", caption="a pdf"
     )
 
 
@@ -254,5 +256,5 @@ async def test_copy_message_cleans_up_temp_file_and_dir():
     ):
         await _copy_message(client, message, -1008888888888)
 
-    mock_rm.assert_called_once_with("/fake/tmpdir/media")
+    mock_rm.assert_called_once_with("/fake/tmpdir/photo_2025-01-01_001.jpg")
     mock_rd.assert_called_once_with("/fake/tmpdir")
