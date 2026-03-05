@@ -131,6 +131,31 @@ async def _copy_message(client: Client, message, source: dict, dest_id: int):
             os.rmdir(tmp_dir)
 
 
+async def _dispatch(
+    client: Client,
+    message,
+    source: dict,
+    dest_id: int,
+    state: State,
+):
+    """Route a message to the correct forward strategy based on source mode."""
+    mode = source.get("mode", "forward")
+    if mode not in ("forward", "copy"):
+        logger.warning(
+            "Unknown mode %r for source %d — falling back to 'forward'",
+            mode,
+            source.get("id", "?"),
+        )
+        mode = "forward"
+
+    if mode == "copy":
+        await _copy_message(client, message, source, dest_id)
+    else:
+        await _safe_forward(client, dest_id, message.chat.id, message.id)
+
+    state.set(message.chat.id, message.id)
+
+
 async def _send_with_floodwait(send_fn, *args, **kwargs):
     """Call a send_* function, retrying once on FloodWait."""
     try:
@@ -150,13 +175,14 @@ async def _send_placeholder(client: Client, dest_id: int, source_id: int, msg_id
 
 async def backfill(
     client: Client,
-    source_id: int,
-    backfill_from,
+    source: dict,
     dest_id: int,
     state: State,
     delay: float,
 ):
-    """Forward all messages from source_id to dest_id starting from backfill_from."""
+    """Forward all messages from source to dest_id."""
+    source_id = source["id"]
+    backfill_from = source.get("backfill_from", 0)
     last_id = state.get(source_id)
     offset_date = _resolve_offset_date(backfill_from)
     min_msg_id = max(last_id, _resolve_min_message_id(backfill_from))
@@ -168,9 +194,7 @@ async def backfill(
     async for message in client.get_chat_history(source_id, offset_date=offset_date):
         if message.id <= min_msg_id:
             break
-        await _safe_forward(client, dest_id, source_id, message.id)
-        if message.id > state.get(source_id):
-            state.set(source_id, message.id)
+        await _dispatch(client, message, source, dest_id, state)
         logger.debug("Forwarded message %d from %d", message.id, source_id)
         await asyncio.sleep(delay)
 
@@ -178,15 +202,17 @@ async def backfill(
 
 
 def register_live_handlers(
-    client: Client, source_ids: list[int], dest_id: int, state: State
+    client: Client, sources: list[dict], dest_id: int, state: State
 ):
     """Register a message handler that forwards new messages in real time."""
+    source_ids = [s["id"] for s in sources]
+    sources_by_id = {s["id"]: s for s in sources}
 
     @client.on_message(f.chat(source_ids))
     async def handler(c: Client, message):
         try:
-            await _safe_forward(c, dest_id, message.chat.id, message.id)
-            state.set(message.chat.id, message.id)
+            source = sources_by_id.get(message.chat.id, {"id": message.chat.id})
+            await _dispatch(c, message, source, dest_id, state)
             logger.debug(
                 "Live-forwarded message %d from %d", message.id, message.chat.id
             )

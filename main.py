@@ -37,8 +37,7 @@ async def run():
             try:
                 await backfill(
                     client,
-                    source["id"],
-                    source.get("backfill_from", 0),
+                    source,
                     dest_id,
                     state,
                     delay,
@@ -49,7 +48,7 @@ async def run():
                     source.get("name", source["id"]),
                 )
 
-        register_live_handlers(client, [s["id"] for s in sources], dest_id, state)
+        register_live_handlers(client, sources, dest_id, state)
         logger.info("Live monitoring started. Press Ctrl+C to stop.")
         await idle()
 
