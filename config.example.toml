@@ -7,14 +7,16 @@ phone = "+1234567890"
 backfill_delay_seconds = 0.5
 
 [[sources]]
-id = -1001234567890
-name = "My Source Group"
+id            = -1001234567890
+name          = "My Source Group"
 backfill_from = "2025-01-01"
+mode          = "forward"  # "forward" (default) or "copy" (for restricted sources)
 
 [[sources]]
-id = -1009999999999
-name = "Another Group"
+id            = -1009999999999
+name          = "Another Group"
 backfill_from = 0
+mode          = "forward"  # "forward" (default) or "copy" (for restricted sources)
 
 [destination]
 id = -1008888888888
