@@ -3,7 +3,6 @@
 
 import os
 import re
-import subprocess
 import sys
 
 try:
@@ -144,6 +143,19 @@ def collect_backfill_from() -> str | int:
         return 0
 
 
+def collect_mode() -> str:
+    return ask_choice(
+        "Forward mode:",
+        [
+            ("forward — native Telegram forward", "forward"),
+            (
+                "copy    — download & re-send (use for sources that restrict forwarding)",
+                "copy",
+            ),
+        ],
+    )
+
+
 def tip_chat_id() -> None:
     print(
         "  Tip: forward any message from the group/channel to @userinfobot on Telegram"
@@ -161,7 +173,10 @@ def collect_sources() -> list[dict]:
         chat_id = int(ask_validated("  Chat ID (negative integer)", validate_chat_id))
         name = ask("  Name (label for logs)")
         backfill_from = collect_backfill_from()
-        sources.append({"id": chat_id, "name": name, "backfill_from": backfill_from})
+        mode = collect_mode()
+        sources.append(
+            {"id": chat_id, "name": name, "backfill_from": backfill_from, "mode": mode}
+        )
         if not ask_yes_no("\nAdd another source?", default=False):
             break
     return sources
@@ -200,6 +215,7 @@ def write_toml(
             f"id = {src['id']}",
             f'name = "{src["name"]}"',
             f"backfill_from = {bf_toml}",
+            f'mode = "{src.get("mode", "forward")}"',
             "",
         ]
     lines += [
