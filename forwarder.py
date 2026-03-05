@@ -12,6 +12,22 @@ from state import State
 
 logger = logging.getLogger(__name__)
 
+_NO_DOWNLOAD_TYPES = {
+    MessageMediaType.CONTACT,
+    MessageMediaType.LOCATION,
+    MessageMediaType.VENUE,
+    MessageMediaType.POLL,
+    MessageMediaType.DICE,
+    MessageMediaType.GAME,
+    MessageMediaType.GIVEAWAY,
+    MessageMediaType.GIVEAWAY_RESULT,
+    MessageMediaType.STORY,
+    MessageMediaType.INVOICE,
+    MessageMediaType.PAID_MEDIA,
+    MessageMediaType.TODO,
+    MessageMediaType.WEB_PAGE_PREVIEW,
+}
+
 
 def _placeholder_link(source_id: int, msg_id: int) -> str:
     """Build a t.me/c/ link. Works for private channels if recipient is a member."""
@@ -56,24 +72,7 @@ async def _copy_message(client: Client, message, source: dict, dest_id: int):
 
     media_type = message.media
 
-    # Types with no downloadable file — send placeholder immediately
-    _no_download = {
-        MessageMediaType.CONTACT,
-        MessageMediaType.LOCATION,
-        MessageMediaType.VENUE,
-        MessageMediaType.POLL,
-        MessageMediaType.DICE,
-        MessageMediaType.GAME,
-        MessageMediaType.GIVEAWAY,
-        MessageMediaType.GIVEAWAY_RESULT,
-        MessageMediaType.STORY,
-        MessageMediaType.INVOICE,
-        MessageMediaType.PAID_MEDIA,
-        MessageMediaType.TODO,
-        MessageMediaType.WEB_PAGE_PREVIEW,
-    }
-
-    if media_type in _no_download:
+    if media_type in _NO_DOWNLOAD_TYPES:
         await _send_placeholder(client, dest_id, source_id, msg_id)
         return
 
