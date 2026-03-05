@@ -15,9 +15,12 @@ from forwarder import backfill, register_live_handlers
 from state import State
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+# Third-party libraries are always noisy at DEBUG; keep them at WARNING.
+for _noisy in ("pyrogram", "pyrofork"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

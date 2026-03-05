@@ -19,6 +19,10 @@ install:
 run:
 	uv run python main.py $(CONFIG)
 
+.PHONY: debug # Run the forwarder with DEBUG logging
+debug:
+	LOG_LEVEL=DEBUG uv run python main.py $(CONFIG)
+
 .PHONY: wizard # Run the interactive setup wizard (re-configure config.toml)
 wizard:
 	uv run python setup.py

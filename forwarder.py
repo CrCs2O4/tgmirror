@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime
 
 from pyrogram import Client, filters as f
 from pyrogram.enums import MessageMediaType
@@ -35,16 +35,17 @@ def _placeholder_link(source_id: int, msg_id: int) -> str:
     return f"t.me/c/{bare_id}/{msg_id}"
 
 
-def _resolve_offset_date(backfill_from) -> datetime | None:
-    """Convert backfill_from config value to a datetime or None."""
-    if backfill_from == 0:
-        return None
+def _resolve_date_floor(backfill_from) -> datetime | None:
+    """Return a naive UTC datetime lower bound from backfill_from, or None.
+
+    Pyrofork returns naive datetimes for message.date, so we keep date_floor
+    naive too to avoid 'can't compare offset-naive and offset-aware datetimes'.
+    """
     if isinstance(backfill_from, str):
         dt = datetime.fromisoformat(backfill_from)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    return None  # treat integer as message ID (handled separately)
+        # Strip tzinfo so comparison with pyrofork's naive message.date works.
+        return dt.replace(tzinfo=None)
+    return None
 
 
 def _resolve_min_message_id(backfill_from) -> int:
@@ -179,20 +180,36 @@ async def backfill(
     state: State,
     delay: float,
 ):
-    """Forward all messages from source to dest_id."""
+    """Forward all messages from source to dest_id, oldest-first.
+
+    Phase 1: scan source history newest→oldest, collecting messages that are
+    within the backfill window (above last_id and after the date floor).
+    Phase 2: dispatch collected messages oldest-first so the destination
+    channel mirrors the original chronological order.
+    """
     source_id = source["id"]
     backfill_from = source.get("backfill_from", 0)
     last_id = state.get(source_id)
-    offset_date = _resolve_offset_date(backfill_from)
-    min_msg_id = max(last_id, _resolve_min_message_id(backfill_from))
+    date_floor = _resolve_date_floor(backfill_from)
+    min_msg_id = _resolve_min_message_id(backfill_from)
 
     logger.info(
         "Backfilling source %d from %s (last_id=%d)", source_id, backfill_from, last_id
     )
 
-    async for message in client.get_chat_history(source_id, offset_date=offset_date):
+    # Phase 1: collect messages to dispatch (newest→oldest from API).
+    to_dispatch = []
+    async for message in client.get_chat_history(source_id):
+        if message.id <= last_id:
+            break  # already dispatched in a previous run
         if message.id <= min_msg_id:
-            break
+            break  # integer backfill_from floor
+        if date_floor and message.date < date_floor:
+            break  # before the date lower bound
+        to_dispatch.append(message)
+
+    # Phase 2: send oldest-first.
+    for message in reversed(to_dispatch):
         await _dispatch(client, message, source, dest_id)
         state.set(source_id, message.id)
         logger.debug("Forwarded message %d from %d", message.id, source_id)

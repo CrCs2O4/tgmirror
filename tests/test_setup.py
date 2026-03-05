@@ -1,4 +1,3 @@
-import pytest
 from setup import validate_api_hash, validate_phone, validate_chat_id
 
 

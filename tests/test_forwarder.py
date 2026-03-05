@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from pyrogram.enums import MessageMediaType
 
@@ -8,9 +9,16 @@ from state import State
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+_EPOCH = datetime(2026, 1, 1)  # naive, matching pyrofork's message.date
+
 
 def make_message(
-    media=None, text="hello", caption=None, chat_id=-1001234567890, msg_id=42
+    media=None,
+    text="hello",
+    caption=None,
+    chat_id=-1001234567890,
+    msg_id=42,
+    date=_EPOCH,
 ):
     msg = MagicMock()
     msg.media = media
@@ -18,6 +26,7 @@ def make_message(
     msg.caption = caption
     msg.chat.id = chat_id
     msg.id = msg_id
+    msg.date = date
     return msg
 
 
@@ -238,8 +247,30 @@ async def _async_messages(messages):
 
 
 @pytest.mark.asyncio
-async def test_backfill_state_updates_per_message_newest_first():
-    """After processing msg 100 then 99, state should be 99 (the last processed), not 100."""
+async def test_backfill_dispatches_oldest_first():
+    """Messages are dispatched oldest-first (ascending ID) regardless of API order."""
+    client = make_client()
+    state = State(path=":memory:")
+    source = {"id": -1001111111111, "mode": "forward", "backfill_from": 0}
+
+    # API returns newest→oldest
+    msgs = [make_message(chat_id=-1001111111111, msg_id=i) for i in (100, 99, 98)]
+    client.get_chat_history = MagicMock(return_value=_async_messages(msgs))
+
+    forwarded_ids = []
+
+    async def capture(client_, dest_id, source_id, msg_id):
+        forwarded_ids.append(msg_id)
+
+    with patch("forwarder._safe_forward", side_effect=capture):
+        await backfill(client, source, -1008888888888, state, delay=0)
+
+    assert forwarded_ids == [98, 99, 100]
+
+
+@pytest.mark.asyncio
+async def test_backfill_state_is_highest_dispatched():
+    """After a full run, state equals the highest (most recent) dispatched ID."""
     client = make_client()
     state = State(path=":memory:")
     source = {"id": -1001111111111, "mode": "forward", "backfill_from": 0}
@@ -250,61 +281,140 @@ async def test_backfill_state_updates_per_message_newest_first():
     with patch("forwarder._safe_forward", new_callable=AsyncMock):
         await backfill(client, source, -1008888888888, state, delay=0)
 
-    assert state.get(-1001111111111) == 99
+    assert state.get(-1001111111111) == 100
 
 
 @pytest.mark.asyncio
 async def test_backfill_interrupted_state_reflects_partial_progress():
-    """If interrupted after first message (msg 100), state should be 100 so next run
-    resumes from 99 downward — not from the beginning."""
+    """If interrupted mid-dispatch, state holds the highest ID sent so far,
+    so the next run resumes from where it left off without re-sending."""
     client = make_client()
     state = State(path=":memory:")
     source = {"id": -1001111111111, "mode": "forward", "backfill_from": 0}
 
-    # Simulate Ctrl+C after the first message by raising on second forward call
+    # API returns 100, 99, 98 (newest→oldest); dispatched oldest-first: 98, 99, 100.
+    # Interrupt after dispatching 99 (second call).
     call_count = 0
 
-    async def forward_once_then_interrupt(*args, **kwargs):
+    async def forward_twice_then_interrupt(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count == 2:
+        if call_count == 3:
             raise KeyboardInterrupt
 
     msgs = [make_message(chat_id=-1001111111111, msg_id=i) for i in (100, 99, 98)]
     client.get_chat_history = MagicMock(return_value=_async_messages(msgs))
 
-    with patch("forwarder._safe_forward", side_effect=forward_once_then_interrupt):
+    with patch("forwarder._safe_forward", side_effect=forward_twice_then_interrupt):
         try:
             await backfill(client, source, -1008888888888, state, delay=0)
         except KeyboardInterrupt:
             pass
 
-    # state should be 100 (msg 100 was processed), not 0 and not higher
-    assert state.get(-1001111111111) == 100
+    # Dispatched 98 and 99; state should be 99 (highest sent)
+    assert state.get(-1001111111111) == 99
 
 
 @pytest.mark.asyncio
-async def test_backfill_resumes_from_saved_state():
-    """On second run, backfill should skip messages at or below the saved state ID."""
+async def test_backfill_resumes_skipping_already_sent():
+    """On resume, messages with ID <= last_id are skipped; only newer ones are sent."""
     client = make_client()
     state = State(path=":memory:")
-    state.set(-1001111111111, 98)  # simulate: processed down to 98 last run
+    state.set(-1001111111111, 99)  # simulate: previously sent up to and including 99
     source = {"id": -1001111111111, "mode": "forward", "backfill_from": 0}
 
-    msgs = [make_message(chat_id=-1001111111111, msg_id=i) for i in (100, 99, 98, 97)]
+    # API returns all messages newest→oldest; 99 and below should be skipped
+    msgs = [
+        make_message(chat_id=-1001111111111, msg_id=i) for i in (102, 101, 100, 99, 98)
+    ]
     client.get_chat_history = MagicMock(return_value=_async_messages(msgs))
 
     forwarded_ids = []
 
-    async def capture_forward(client_, dest_id, source_id, msg_id):
+    async def capture(client_, dest_id, source_id, msg_id):
         forwarded_ids.append(msg_id)
 
-    with patch("forwarder._safe_forward", side_effect=capture_forward):
+    with patch("forwarder._safe_forward", side_effect=capture):
         await backfill(client, source, -1008888888888, state, delay=0)
 
-    # 100 and 99 were not yet processed (above state=98), so they should be forwarded
-    # 98 and 97 were already processed (at or below state=98), so they should be skipped
-    assert forwarded_ids == [100, 99]
+    # Only 100, 101, 102 are new; dispatched oldest-first
+    assert forwarded_ids == [100, 101, 102]
+
+
+@pytest.mark.asyncio
+async def test_backfill_date_floor_excludes_older_messages():
+    """Messages whose date is before backfill_from are not dispatched."""
+    client = make_client()
+    state = State(path=":memory:")
+    source = {"id": -1001111111111, "mode": "forward", "backfill_from": "2026-01-01"}
+
+    msgs = [
+        make_message(
+            chat_id=-1001111111111,
+            msg_id=102,
+            date=datetime(2026, 3, 1),
+        ),
+        make_message(
+            chat_id=-1001111111111,
+            msg_id=101,
+            date=datetime(2026, 1, 1),
+        ),
+        make_message(
+            chat_id=-1001111111111,
+            msg_id=100,
+            date=datetime(2025, 12, 1),
+        ),
+        make_message(
+            chat_id=-1001111111111,
+            msg_id=99,
+            date=datetime(2025, 6, 1),
+        ),
+    ]
+    client.get_chat_history = MagicMock(return_value=_async_messages(msgs))
+
+    forwarded_ids = []
+
+    async def capture(client_, dest_id, source_id, msg_id):
+        forwarded_ids.append(msg_id)
+
+    with patch("forwarder._safe_forward", side_effect=capture):
+        await backfill(client, source, -1008888888888, state, delay=0)
+
+    # 101 (exactly on floor) and 102 (above) are included; 100 and 99 are before floor
+    assert forwarded_ids == [101, 102]
+
+
+@pytest.mark.asyncio
+async def test_backfill_date_floor_works_with_naive_message_dates():
+    """Backfill must not crash when pyrofork returns naive (no tzinfo) datetimes."""
+    client = make_client()
+    state = State(path=":memory:")
+    source = {"id": -1001111111111, "mode": "forward", "backfill_from": "2026-01-01"}
+
+    # Simulate pyrofork returning naive datetimes (no tzinfo)
+    msgs = [
+        make_message(
+            chat_id=-1001111111111,
+            msg_id=102,
+            date=datetime(2026, 3, 1),  # naive
+        ),
+        make_message(
+            chat_id=-1001111111111,
+            msg_id=100,
+            date=datetime(2025, 12, 1),  # naive, before floor
+        ),
+    ]
+    client.get_chat_history = MagicMock(return_value=_async_messages(msgs))
+
+    forwarded_ids = []
+
+    async def capture(client_, dest_id, source_id, msg_id):
+        forwarded_ids.append(msg_id)
+
+    with patch("forwarder._safe_forward", side_effect=capture):
+        await backfill(client, source, -1008888888888, state, delay=0)
+
+    assert forwarded_ids == [102]
 
 
 @pytest.mark.asyncio
