@@ -77,6 +77,7 @@ async def _copy_message(client: Client, message, source: dict, dest_id: int):
         await _send_placeholder(client, dest_id, source_id, msg_id)
         return
 
+    tmp_dir = None
     tmp_path = None
     try:
         if media_type is None:
@@ -84,7 +85,10 @@ async def _copy_message(client: Client, message, source: dict, dest_id: int):
             await client.send_message(dest_id, caption)
             return
 
-        tmp_path = await client.download_media(message, file_name=tempfile.mktemp())
+        tmp_dir = tempfile.mkdtemp()
+        tmp_path = await client.download_media(
+            message, file_name=os.path.join(tmp_dir, "media")
+        )
 
         if media_type == MessageMediaType.PHOTO:
             await _send_with_floodwait(
@@ -124,6 +128,8 @@ async def _copy_message(client: Client, message, source: dict, dest_id: int):
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
+        if tmp_dir and os.path.exists(tmp_dir):
+            os.rmdir(tmp_dir)
 
 
 async def _send_with_floodwait(send_fn, *args, **kwargs):
