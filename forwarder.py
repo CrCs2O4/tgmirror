@@ -134,9 +134,12 @@ async def _dispatch(
     message,
     source: dict,
     dest_id: int,
-    state: State,
 ):
-    """Route a message to the correct forward strategy based on source mode."""
+    """Route a message to the correct forward strategy based on source mode.
+
+    Does NOT update state — callers are responsible for updating state after
+    each successful dispatch so they can control resumability semantics.
+    """
     mode = source.get("mode", "forward")
     if mode not in ("forward", "copy"):
         logger.warning(
@@ -150,10 +153,6 @@ async def _dispatch(
         await _copy_message(client, message, dest_id)
     else:
         await _safe_forward(client, dest_id, message.chat.id, message.id)
-
-    # Advance state even on copy failure — placeholder was sent, no retry needed
-    if message.id > state.get(message.chat.id):
-        state.set(message.chat.id, message.id)
 
 
 async def _send_with_floodwait(send_fn, *args, **kwargs):
@@ -194,7 +193,8 @@ async def backfill(
     async for message in client.get_chat_history(source_id, offset_date=offset_date):
         if message.id <= min_msg_id:
             break
-        await _dispatch(client, message, source, dest_id, state)
+        await _dispatch(client, message, source, dest_id)
+        state.set(source_id, message.id)
         logger.debug("Forwarded message %d from %d", message.id, source_id)
         await asyncio.sleep(delay)
 
@@ -212,7 +212,8 @@ def register_live_handlers(
     async def handler(c: Client, message):
         try:
             source = sources_by_id.get(message.chat.id, {"id": message.chat.id})
-            await _dispatch(c, message, source, dest_id, state)
+            await _dispatch(c, message, source, dest_id)
+            state.set(message.chat.id, message.id)
             logger.debug(
                 "Live-forwarded message %d from %d", message.id, message.chat.id
             )
