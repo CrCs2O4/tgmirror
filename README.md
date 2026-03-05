@@ -144,40 +144,53 @@ Multiple `[[sources]]` sections can be added to forward from several groups.
 
 ## Server Deployment
 
-### 1. Authenticate locally first
+Authenticate locally first regardless of deployment method — the phone/OTP flow requires an interactive terminal. Run `make run` on your local machine to generate the `.session` file, then copy it to the server alongside `config.toml`.
 
-Run `make run` on your local machine to complete the phone/OTP flow and generate the `.session` file. **Do not skip this step** — the systemd service cannot prompt interactively.
+### systemd (bare metal / VPS)
 
-### 2. Copy files to the server
+Copy the files, install dependencies, then enable the bundled unit:
 
 ```bash
 rsync -av --exclude='.venv' --exclude='__pycache__' \
   tgmirror/ user@server:/opt/tgmirror/
-```
 
-### 3. Install dependencies on the server
-
-```bash
 ssh user@server
-cd /opt/tgmirror
-make setup
-```
+cd /opt/tgmirror && make setup
 
-### 4. Install and enable the systemd unit
-
-```bash
-sudo cp /opt/tgmirror/tgmirror.service \
-        /etc/systemd/system/
+sudo cp tgmirror.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now tgmirror
-```
 
-### 5. Check status and logs
-
-```bash
-sudo systemctl status tgmirror
 sudo journalctl -u tgmirror -f
 ```
+
+### Docker
+
+Build the image and mount a data directory containing `config.toml` and the `.session` file:
+
+```bash
+make docker-build
+make docker-run DATA_DIR=~/tg-data
+```
+
+See the [Docker](#docker) section above for full details.
+
+### Kamal
+
+[Kamal](https://kamal-deploy.org) can deploy the Docker image to any server and manage zero-downtime restarts. Mount the data directory as a volume so `config.toml` and `.session` persist across deploys:
+
+```yaml
+# deploy.yml (excerpt)
+volumes:
+  - /opt/tgmirror-data:/data
+env:
+  clear:
+    CONFIG: /data/config.toml
+```
+
+### Other container tooling
+
+Any runtime that can run a Docker image (Compose, Nomad, Fly.io, etc.) works the same way — mount the data directory, set `CONFIG` to its path, and ensure the `.session` file is present before the first start.
 
 ## How It Works
 
