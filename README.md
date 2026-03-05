@@ -15,11 +15,22 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Setup
 
-### 1. Get API credentials
+`make setup` installs all dependencies, and `make run` handles everything else — it will prompt for API credentials, phone number, and OTP on first run, then write a `config.toml` and `.session` file for subsequent runs.
+
+```bash
+make setup
+make run
+```
+
+### Manual setup
+
+If you prefer to configure manually:
+
+#### 1. Get API credentials
 
 Visit https://my.telegram.org/apps, log in, and create an application. Note your **api_id** (integer) and **api_hash** (string).
 
-### 2. Configure
+#### 2. Configure
 
 ```bash
 cp config.example.toml config.toml
@@ -27,7 +38,7 @@ cp config.example.toml config.toml
 
 Edit `config.toml` and fill in your credentials and group/channel IDs (see Config Reference below).
 
-### 3. Find group and channel IDs
+#### 3. Find group and channel IDs
 
 Telegram IDs for supergroups and channels are negative integers (e.g. `-1001234567890`).
 
@@ -35,7 +46,7 @@ Telegram IDs for supergroups and channels are negative integers (e.g. `-10012345
 
 **Option B:** Use a Telegram client that displays IDs (e.g. Telegram Desktop with developer mode, or the `pyrogram` shell).
 
-### 4. Install dependencies
+#### 4. Install dependencies
 
 ```bash
 make setup
@@ -43,7 +54,7 @@ make setup
 
 This installs `uv` if it isn't already on your `PATH`, then syncs all dependencies into `.venv`.
 
-### 5. First run — authenticate
+#### 5. First run — authenticate
 
 ```bash
 make run
@@ -175,3 +186,7 @@ On startup the forwarder runs a **backfill phase**: for each source it collects 
 Once backfill is complete it enters the **live phase**: a Pyrogram message handler fires for every new message in any source chat and forwards it to the destination immediately.
 
 **Forward mode** (`mode = "forward"`, default) uses Telegram's native forward API. **Copy mode** (`mode = "copy"`) downloads each message to a temporary file and re-uploads it, which works around sources that have disabled forwarding. Photos and documents are supported; other media types produce a placeholder link pointing to the original message.
+
+## Contributing
+
+Feature designs and implementation plans live in [`docs/plans/`](docs/plans/). Each feature starts with a design document exploring requirements and trade-offs, followed by a step-by-step plan. New feature development should follow the same pattern.
