@@ -1,13 +1,22 @@
 import asyncio
 import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 
 from pyrogram import Client, filters as f
+from pyrogram.enums import MessageMediaType
 from pyrogram.errors import FloodWait
 
 from state import State
 
 logger = logging.getLogger(__name__)
+
+
+def _placeholder_link(source_id: int, msg_id: int) -> str:
+    """Build a t.me/c/ link. Works for private channels if recipient is a member."""
+    bare_id = str(source_id).lstrip("-").removeprefix("100")
+    return f"t.me/c/{bare_id}/{msg_id}"
 
 
 def _resolve_offset_date(backfill_from) -> datetime | None:
@@ -37,6 +46,101 @@ async def _safe_forward(client: Client, dest_id: int, source_id: int, msg_id: in
         logger.warning("FloodWait: sleeping %ds", e.value)
         await asyncio.sleep(e.value + 1)
         await client.forward_messages(dest_id, source_id, msg_id)
+
+
+async def _copy_message(client: Client, message, source: dict, dest_id: int):
+    """Download and re-send a message, bypassing forward restrictions."""
+    source_id = message.chat.id
+    msg_id = message.id
+    caption = message.caption or message.text or ""
+
+    media_type = message.media
+
+    # Types with no downloadable file — send placeholder immediately
+    _no_download = {
+        MessageMediaType.CONTACT,
+        MessageMediaType.LOCATION,
+        MessageMediaType.VENUE,
+        MessageMediaType.POLL,
+        MessageMediaType.DICE,
+        MessageMediaType.GAME,
+        MessageMediaType.GIVEAWAY,
+        MessageMediaType.GIVEAWAY_RESULT,
+        MessageMediaType.STORY,
+        MessageMediaType.INVOICE,
+        MessageMediaType.PAID_MEDIA,
+        MessageMediaType.TODO,
+        MessageMediaType.WEB_PAGE_PREVIEW,
+    }
+
+    if media_type in _no_download:
+        await _send_placeholder(client, dest_id, source_id, msg_id)
+        return
+
+    tmp_path = None
+    try:
+        if media_type is None:
+            # Text-only message
+            await client.send_message(dest_id, caption)
+            return
+
+        tmp_path = await client.download_media(message, file_name=tempfile.mktemp())
+
+        if media_type == MessageMediaType.PHOTO:
+            await _send_with_floodwait(
+                client.send_photo, dest_id, tmp_path, caption=caption
+            )
+        elif media_type == MessageMediaType.VIDEO:
+            await _send_with_floodwait(
+                client.send_video, dest_id, tmp_path, caption=caption
+            )
+        elif media_type == MessageMediaType.DOCUMENT:
+            await _send_with_floodwait(
+                client.send_document, dest_id, tmp_path, caption=caption
+            )
+        elif media_type == MessageMediaType.AUDIO:
+            await _send_with_floodwait(
+                client.send_audio, dest_id, tmp_path, caption=caption
+            )
+        elif media_type == MessageMediaType.VOICE:
+            await _send_with_floodwait(client.send_voice, dest_id, tmp_path)
+        elif media_type == MessageMediaType.VIDEO_NOTE:
+            await _send_with_floodwait(client.send_video_note, dest_id, tmp_path)
+        elif media_type == MessageMediaType.STICKER:
+            await _send_with_floodwait(client.send_sticker, dest_id, tmp_path)
+        elif media_type == MessageMediaType.ANIMATION:
+            await _send_with_floodwait(
+                client.send_animation, dest_id, tmp_path, caption=caption
+            )
+        else:
+            # Unknown downloadable type — try as document
+            await _send_with_floodwait(
+                client.send_document, dest_id, tmp_path, caption=caption
+            )
+
+    except Exception as e:
+        logger.warning("Could not copy message %d from %d: %s", msg_id, source_id, e)
+        await _send_placeholder(client, dest_id, source_id, msg_id)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+async def _send_with_floodwait(send_fn, *args, **kwargs):
+    """Call a send_* function, retrying once on FloodWait."""
+    try:
+        await send_fn(*args, **kwargs)
+    except FloodWait as e:
+        logger.warning("FloodWait: sleeping %ds", e.value)
+        await asyncio.sleep(e.value + 1)
+        await send_fn(*args, **kwargs)
+
+
+async def _send_placeholder(client: Client, dest_id: int, source_id: int, msg_id: int):
+    """Send a placeholder when a message cannot be copied."""
+    link = _placeholder_link(source_id, msg_id)
+    text = f"[Could not forward message]\nOriginal: {link}"
+    await client.send_message(dest_id, text)
 
 
 async def backfill(
