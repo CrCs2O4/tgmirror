@@ -89,7 +89,7 @@ async def test_dispatch_copy_mode_calls_copy_message():
 
     with patch("forwarder._copy_message", new_callable=AsyncMock) as mock_copy:
         await _dispatch(client, message, source, -1008888888888, state)
-        mock_copy.assert_called_once_with(client, message, source, -1008888888888)
+        mock_copy.assert_called_once_with(client, message, -1008888888888)
 
 
 @pytest.mark.asyncio
@@ -139,9 +139,8 @@ async def test_dispatch_does_not_regress_state():
 async def test_copy_message_text_only():
     client = make_client()
     message = make_message(media=None, text="some text")
-    source = {"id": -1001234567890}
 
-    await _copy_message(client, message, source, -1008888888888)
+    await _copy_message(client, message, -1008888888888)
 
     client.send_message.assert_called_once_with(-1008888888888, "some text")
     client.download_media.assert_not_called()
@@ -151,15 +150,14 @@ async def test_copy_message_text_only():
 async def test_copy_message_photo():
     client = make_client()
     message = make_message(media=MessageMediaType.PHOTO, caption="a photo")
-    source = {"id": -1001234567890}
 
     with (
         patch("tempfile.mkdtemp", return_value="/fake/tmpdir"),
-        patch("os.path.exists", return_value=True),
+        patch("forwarder.os.path.exists", return_value=True),
         patch("os.remove"),
         patch("os.rmdir"),
     ):
-        await _copy_message(client, message, source, -1008888888888)
+        await _copy_message(client, message, -1008888888888)
 
     client.download_media.assert_called_once()
     client.send_photo.assert_called_once_with(
@@ -171,15 +169,14 @@ async def test_copy_message_photo():
 async def test_copy_message_document():
     client = make_client()
     message = make_message(media=MessageMediaType.DOCUMENT, caption="a pdf")
-    source = {"id": -1001234567890}
 
     with (
         patch("tempfile.mkdtemp", return_value="/fake/tmpdir"),
-        patch("os.path.exists", return_value=True),
+        patch("forwarder.os.path.exists", return_value=True),
         patch("os.remove"),
         patch("os.rmdir"),
     ):
-        await _copy_message(client, message, source, -1008888888888)
+        await _copy_message(client, message, -1008888888888)
 
     client.send_document.assert_called_once_with(
         -1008888888888, "/fake/tmpdir/media", caption="a pdf"
@@ -193,9 +190,8 @@ async def test_copy_message_unsupported_type_sends_placeholder():
     message = make_message(
         media=MessageMediaType.POLL, chat_id=-1001234567890, msg_id=5
     )
-    source = {"id": -1001234567890}
 
-    await _copy_message(client, message, source, -1008888888888)
+    await _copy_message(client, message, -1008888888888)
 
     client.download_media.assert_not_called()
     client.send_message.assert_called_once()
@@ -211,14 +207,13 @@ async def test_copy_message_download_fails_sends_placeholder():
     message = make_message(
         media=MessageMediaType.PHOTO, chat_id=-1001234567890, msg_id=10
     )
-    source = {"id": -1001234567890}
 
     with (
         patch("tempfile.mkdtemp", return_value="/fake/tmpdir"),
         patch("os.path.exists", return_value=False),
         patch("os.rmdir"),
     ):
-        await _copy_message(client, message, source, -1008888888888)
+        await _copy_message(client, message, -1008888888888)
 
     client.send_message.assert_called_once()
     call_text = client.send_message.call_args[0][1]
@@ -232,15 +227,14 @@ async def test_copy_message_send_fails_sends_placeholder():
     message = make_message(
         media=MessageMediaType.PHOTO, chat_id=-1001234567890, msg_id=11
     )
-    source = {"id": -1001234567890}
 
     with (
         patch("tempfile.mkdtemp", return_value="/fake/tmpdir"),
-        patch("os.path.exists", return_value=True),
+        patch("forwarder.os.path.exists", return_value=True),
         patch("os.remove"),
         patch("os.rmdir"),
     ):
-        await _copy_message(client, message, source, -1008888888888)
+        await _copy_message(client, message, -1008888888888)
 
     client.send_message.assert_called_once()
     call_text = client.send_message.call_args[0][1]
@@ -251,15 +245,14 @@ async def test_copy_message_send_fails_sends_placeholder():
 async def test_copy_message_cleans_up_temp_file_and_dir():
     client = make_client()
     message = make_message(media=MessageMediaType.VIDEO)
-    source = {"id": -1001234567890}
 
     with (
         patch("tempfile.mkdtemp", return_value="/fake/tmpdir"),
-        patch("os.path.exists", return_value=True),
+        patch("forwarder.os.path.exists", return_value=True),
         patch("os.remove") as mock_rm,
         patch("os.rmdir") as mock_rd,
     ):
-        await _copy_message(client, message, source, -1008888888888)
+        await _copy_message(client, message, -1008888888888)
 
     mock_rm.assert_called_once_with("/fake/tmpdir/media")
     mock_rd.assert_called_once_with("/fake/tmpdir")

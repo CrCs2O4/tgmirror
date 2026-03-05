@@ -64,7 +64,7 @@ async def _safe_forward(client: Client, dest_id: int, source_id: int, msg_id: in
         await client.forward_messages(dest_id, source_id, msg_id)
 
 
-async def _copy_message(client: Client, message, source: dict, dest_id: int):
+async def _copy_message(client: Client, message, dest_id: int):
     """Download and re-send a message, bypassing forward restrictions."""
     source_id = message.chat.id
     msg_id = message.id
@@ -149,10 +149,11 @@ async def _dispatch(
         mode = "forward"
 
     if mode == "copy":
-        await _copy_message(client, message, source, dest_id)
+        await _copy_message(client, message, dest_id)
     else:
         await _safe_forward(client, dest_id, message.chat.id, message.id)
 
+    # Advance state even on copy failure — placeholder was sent, no retry needed
     if message.id > state.get(message.chat.id):
         state.set(message.chat.id, message.id)
 
